@@ -225,6 +225,44 @@ func UpdatePodSpecNodeSelector(b *BaseComponentFields, isvc *v1beta1.InferenceSe
 		"inferenceService", isvc.Name)
 }
 
+// UpdatePodSpecTolerations merges runtime-level tolerations into the pod spec.
+func UpdatePodSpecTolerations(b *BaseComponentFields, podSpec *corev1.PodSpec) {
+	if podSpec == nil || b.Runtime == nil {
+		return
+	}
+	runtimeTolerations := b.Runtime.ServingRuntimePodSpec.Tolerations
+	if len(runtimeTolerations) == 0 {
+		return
+	}
+	for _, tol := range runtimeTolerations {
+		if !tolerationExists(podSpec.Tolerations, tol) {
+			podSpec.Tolerations = append(podSpec.Tolerations, tol)
+		}
+	}
+}
+
+func tolerationExists(existing []corev1.Toleration, candidate corev1.Toleration) bool {
+	for _, tol := range existing {
+		if tolerationEqual(tol, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func tolerationEqual(a, b corev1.Toleration) bool {
+	if a.Key != b.Key || a.Operator != b.Operator || a.Value != b.Value || a.Effect != b.Effect {
+		return false
+	}
+	if a.TolerationSeconds == nil && b.TolerationSeconds == nil {
+		return true
+	}
+	if a.TolerationSeconds == nil || b.TolerationSeconds == nil {
+		return false
+	}
+	return *a.TolerationSeconds == *b.TolerationSeconds
+}
+
 // UpdatePodSpecVolumes updates pod spec with common volumes
 func UpdatePodSpecVolumes(b *BaseComponentFields, isvc *v1beta1.InferenceService, podSpec *corev1.PodSpec, objectMeta *metav1.ObjectMeta) {
 	// Add model volume if base model is specified

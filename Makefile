@@ -6,6 +6,8 @@ REGISTRY     ?= ghcr.io/moirai-internal
 TAG          ?= $(GIT_TAG)
 ARCH         ?= linux/amd64
 MANAGER_IMG  ?= $(REGISTRY)/ome-manager:$(TAG)
+MIG_MANAGER_IMG ?= $(REGISTRY)/mig-manager:$(TAG)
+MIG_PARTED_VERSION ?= latest
 
 # Git version and commit information for build
 version_pkg = github.com/sgl-project/ome/pkg/version
@@ -297,6 +299,12 @@ multinode-prober: ## 🔍 Build multinode-prober binary.
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/multinode-prober ./cmd/multinode-prober
 	@echo "✅ Build complete"
 
+.PHONY: mig-manager
+mig-manager: ## 🧩 Build mig-manager binary.
+	@echo "🧩 Building mig-manager..."
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/ome-mig-manager ./cmd/mig-manager
+	@echo "✅ Build complete"
+
 .PHONY: run-ome-manager
 run-ome-manager: manifests generate fmt vet ## Run ome-manager binary from local host against the configured Kubernetes cluster in ~/.kube/config or KUBECONFIG env.
 	@echo "🏃‍♂️ Running ome-manager..."
@@ -368,6 +376,17 @@ ome-agent-image: fmt vet xet-build ## Build ome-agent image.
 		. -f dockerfiles/ome-agent.Dockerfile -t $(REGISTRY)/ome-agent:$(TAG)
 	@echo "✅ Image built"
 
+.PHONY: mig-manager-image
+mig-manager-image: fmt vet ## Build mig-manager image.
+	@echo "🚀 Building mig-manager image..."
+	$(DOCKER_BUILD_CMD) build --platform=$(ARCH) \
+		--build-arg VERSION=$(GIT_TAG) \
+		--build-arg GIT_TAG=$(GIT_TAG) \
+		--build-arg GIT_COMMIT=$(shell git rev-parse HEAD) \
+		--build-arg MIG_PARTED_VERSION=$(MIG_PARTED_VERSION) \
+		. -f dockerfiles/mig-manager.Dockerfile -t $(MIG_MANAGER_IMG)
+	@echo "✅ Image built"
+
 .PHONY: docker-buildx-setup
 docker-buildx-setup: ## 🔧 Setup Docker buildx for multi-arch builds
 	@echo "🔧 Setting up Docker buildx..."
@@ -382,6 +401,7 @@ build-all-images: fmt vet ## 🚀 Build all images for current architecture
 	@$(MAKE) model-agent-image
 	@$(MAKE) multinode-prober-image
 	@$(MAKE) ome-agent-image
+	@$(MAKE) mig-manager-image
 	@echo "✅ All images built successfully"
 
 .PHONY: build-all-images-multiarch
@@ -407,6 +427,12 @@ build-all-images-multiarch: fmt vet docker-buildx-setup ## 🌍 Build all images
 		--build-arg GIT_TAG=$(GIT_TAG) \
 		--build-arg GIT_COMMIT=$(shell git rev-parse HEAD) \
 		. -f dockerfiles/ome-agent.Dockerfile -t $(REGISTRY)/ome-agent:$(TAG) --push
+	$(DOCKER_BUILD_CMD) buildx build --platform=linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(GIT_TAG) \
+		--build-arg GIT_TAG=$(GIT_TAG) \
+		--build-arg GIT_COMMIT=$(shell git rev-parse HEAD) \
+		--build-arg MIG_PARTED_VERSION=$(MIG_PARTED_VERSION) \
+		. -f dockerfiles/mig-manager.Dockerfile -t $(MIG_MANAGER_IMG) --push
 	@echo "✅ All multi-arch images built and pushed"
 
 .PHONY: telepresence
@@ -517,6 +543,12 @@ push-ome-agent-image: ome-agent-image ## Push ome-agent image to registry.
 	$(DOCKER_BUILD_CMD) push $(REGISTRY)/ome-agent:$(TAG)
 	@echo "✅ Image pushed"
 
+.PHONY: push-mig-manager-image
+push-mig-manager-image: mig-manager-image ## Push mig-manager image to registry.
+	@echo "🚀 Pushing mig-manager image to registry..."
+	$(DOCKER_BUILD_CMD) push $(MIG_MANAGER_IMG)
+	@echo "✅ Image pushed"
+
 .PHONY: patch-manager-dev
 patch-manager-dev: push-manager-image ## Deploy manager image to dev cluster.
 	@echo "🔄 Patching manager image to dev cluster..."
@@ -535,7 +567,7 @@ patch-model-agent-dev: push-model-agent-image ## Deploy model-agent image to dev
 deploy-helm: manifests helm ## Deploy OME using Helm
 	@echo "🚀 Deploying OME using Helm..."
 	helm install ome-crd charts/ome-crd/ --wait --timeout 180s
-	helm install ome charts/ome-resources/ --wait --timeout 180s
+	helm install ome charts/ome-resources/ -n ome --wait --timeout 180s
 	@echo "✅ Deployment complete"
 
 .PHONY: artifacts

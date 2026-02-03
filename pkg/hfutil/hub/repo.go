@@ -43,7 +43,7 @@ func ListRepoFiles(ctx context.Context, config *DownloadConfig) ([]RepoFile, err
 	var apiURL string
 	switch repoType {
 	case RepoTypeModel:
-		apiURL = fmt.Sprintf("%s/api/models/%s/tree/%s?recursive=true", endpoint, url.PathEscape(config.RepoID), url.QueryEscape(revision))
+		apiURL = fmt.Sprintf("%s/api/models/%s/tree/%s?recursive=true", endpoint, config.RepoID, url.QueryEscape(revision))
 	case RepoTypeDataset:
 		apiURL = fmt.Sprintf("%s/api/datasets/%s/tree/%s?recursive=true", endpoint, url.PathEscape(config.RepoID), url.QueryEscape(revision))
 	case RepoTypeSpace:
@@ -56,9 +56,15 @@ func ListRepoFiles(ctx context.Context, config *DownloadConfig) ([]RepoFile, err
 	maxRetries := 3                   // default
 	retryInterval := 10 * time.Second // default
 
-	if hubConfig, ok := ctx.Value(HubConfigKey).(*HubConfig); ok {
+	var hubConfig *HubConfig
+	if configFromContext, ok := ctx.Value(HubConfigKey).(*HubConfig); ok {
+		hubConfig = configFromContext
 		maxRetries = hubConfig.MaxRetries
 		retryInterval = hubConfig.RetryInterval
+	}
+
+	if hubConfig != nil && hubConfig.Logger != nil {
+		hubConfig.Logger.WithField("url", apiURL).Debug("Listing repository files")
 	}
 
 	// Use exponential backoff with jitter for rate limiting

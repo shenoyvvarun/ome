@@ -1,0 +1,14 @@
+apiVersion: ome.io/v1beta1
+kind: InferenceService
+metadata:
+  name: llama
+  annotations:
+    ome.io/autoscalerClass: hpa
+spec:
+  model:
+    name: llama-3-1-8b-instruct
+  runtime:
+    name: srt-llama-3-1-8b-instruct-mig
+  engine:
+    minReplicas: 1
+    maxReplicas: 1

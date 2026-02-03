@@ -15,6 +15,7 @@ resources:
 - ../webhook
 - ../certmanager
 - ../model-agent
+- ../mig-manager
 
 generatorOptions:
   disableNameSuffixHash: true

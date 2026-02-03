@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ome-mig-manager
+  namespace: ome
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: "ome-mig-manager"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: "ome-mig-manager"
+        control-plane: ome-mig-manager
+    spec:
+      priorityClassName: system-node-critical
+      serviceAccountName: ome-mig-manager
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu
+                operator: In
+                values:
+                - "true"
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: mig-manager
+        image: ghcr.io/moirai-internal/mig-manager:53fbc80-dirty
+        imagePullPolicy: IfNotPresent
+        command:
+        - /usr/local/bin/ome-mig-manager
+        args:
+        - --node-name=$(NODE_NAME)
+        - --config-file=$(CONFIG_FILE)
+        - --gpu-clients-file=$(GPU_CLIENTS_FILE)
+        - --host-root=$(HOST_ROOT_MOUNT)
+        - --nvidia-smi-path=/host/usr/bin/nvidia-smi
+        - --with-reboot=false
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: HOST_ROOT_MOUNT
+          value: /host
+        - name: CONFIG_FILE
+          value: /mig-parted-config/config.yaml
+        - name: GPU_CLIENTS_FILE
+          value: /gpu-clients/clients.yaml
+        - name: MIG_CONFIG_LABEL
+          value: nvidia.com/mig.config
+        - name: MIG_STRATEGY_LABEL
+          value: nvidia.com/mig.strategy
+        - name: MIG_STATE_LABEL
+          value: nvidia.com/mig.config.state
+        - name: MIG_FORCE_LABEL
+          value: your.domain/mig.force
+        - name: MIG_DRAIN_LABEL
+          value: your.domain/mig.drain
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: host-root
+          mountPath: /host
+        - name: host-sys
+          mountPath: /sys
+        - name: nvidia-proc
+          mountPath: /proc/driver/nvidia
+        - name: mig-parted-config
+          mountPath: /mig-parted-config
+          readOnly: true
+        - name: gpu-clients
+          mountPath: /gpu-clients
+          readOnly: true
+      volumes:
+      - name: host-root
+        hostPath:
+          path: /
+      - name: host-sys
+        hostPath:
+          path: /sys
+      - name: nvidia-proc
+        hostPath:
+          path: /proc/driver/nvidia
+      - name: mig-parted-config
+        configMap:
+          name: mig-parted-config
+      - name: gpu-clients
+        configMap:
+          name: mig-manager-gpu-clients

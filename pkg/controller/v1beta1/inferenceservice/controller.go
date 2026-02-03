@@ -81,7 +81,7 @@ import (
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=persistentvolumes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/finalizers,verbs=get;list;watch;create;update;patch;delete
@@ -156,6 +156,9 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	} else {
 		// The object is being deleted
 		if controllerutil.ContainsFinalizer(isvc, finalizerName) {
+			if err := r.cleanupMIGProfiles(ctx, isvc); err != nil {
+				return ctrl.Result{}, err
+			}
 			// remove our finalizer from the list and update it.
 			controllerutil.RemoveFinalizer(isvc, finalizerName)
 			if err := r.Update(context.Background(), isvc); err != nil {
@@ -392,6 +395,10 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}
 
+	if err := r.reconcileMIGProfiles(ctx, isvc); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Now reconcile ingress and external service after components have created their services
 	ingressConfig, err := controllerconfig.NewIngressConfig(r.Clientset)
 	if err != nil {
@@ -561,12 +568,14 @@ func (r *InferenceServiceReconciler) updateStatus(desiredService *v1beta1.Infere
 		// This is important because the copy we loaded from the informer's
 		// cache may be stale, and we don't want to overwrite a prior update
 		// to status with this stale state.
-	} else if err := r.Status().Update(context.TODO(), desiredService); err != nil {
-		r.Log.Error(err, "Failed to update InferenceService status", "InferenceService", desiredService.Name)
-		r.Recorder.Eventf(desiredService, v1.EventTypeWarning, "UpdateFailed",
-			"Failed to update status for InferenceService %q: %v", desiredService.Name, err)
-		return errors.Wrapf(err, "fails to update InferenceService status")
 	} else {
+		desiredService.ResourceVersion = existingService.ResourceVersion
+		if err := r.Status().Update(context.TODO(), desiredService); err != nil {
+			r.Log.Error(err, "Failed to update InferenceService status", "InferenceService", desiredService.Name)
+			r.Recorder.Eventf(desiredService, v1.EventTypeWarning, "UpdateFailed",
+				"Failed to update status for InferenceService %q: %v", desiredService.Name, err)
+			return errors.Wrapf(err, "fails to update InferenceService status")
+		}
 		// If there was a difference and there was no error.
 		isReady := inferenceServiceReadiness(desiredService.Status)
 		if wasReady && !isReady { // Moved to NotReady State

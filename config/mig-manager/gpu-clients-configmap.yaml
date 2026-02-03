@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mig-manager-gpu-clients
+  namespace: ome
+data:
+  clients.yaml: |
+    clients: []

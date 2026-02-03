@@ -172,6 +172,16 @@ var (
 var (
 	InferenceServiceInternalAnnotationsPrefix        = "internal." + OMEAPIGroupName
 	StorageInitializerSourceUriInternalAnnotationKey = InferenceServiceInternalAnnotationsPrefix + "/storage-initializer-sourceuri"
+	MigAssignmentsAnnotationKey                      = InferenceServiceInternalAnnotationsPrefix + "/mig-assignments"
+)
+
+// NVIDIA MIG labels
+const (
+	NvidiaMigConfigLabel         = "nvidia.com/mig.config"
+	NvidiaMigConfigStateLabel    = "nvidia.com/mig.config.state"
+	NvidiaMigCapableLabel        = "nvidia.com/mig.capable"
+	NvidiaMigConfigDisabledValue = "all-disabled"
+	NvidiaMigResourceNamePrefix  = "nvidia.com/mig-"
 )
 
 // ome networking constants

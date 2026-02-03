@@ -96,6 +96,9 @@ func (c *HubClient) ListFiles(ctx context.Context, repoID string, opts ...Downlo
 
 	// Progress will be handled by the listing functions themselves
 
+	// Add hub config to context for retry config and logging
+	ctx = context.WithValue(ctx, HubConfigKey, c.config)
+
 	files, err := ListRepoFiles(ctx, config)
 	return files, err
 }
