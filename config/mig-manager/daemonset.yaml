@@ -21,77 +21,126 @@ spec:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
-            - matchExpressions:
-              - key: nvidia.com/gpu
-                operator: In
-                values:
-                - "true"
+              - matchExpressions:
+                  - key: nvidia.com/gpu
+                    operator: In
+                    values:
+                      - "true"
       tolerations:
-      - key: nvidia.com/gpu
-        operator: Exists
-        effect: NoSchedule
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+
+      # Prepare isolated NVML directory inside the pod
+      initContainers:
+        - name: prepare-nvml
+          image: busybox:1.36
+          command:
+            - sh
+            - -lc
+            - |
+              set -eux
+              mkdir -p /nvml
+              # copy the host NVML file into /nvml as libnvidia-ml.so.1
+              cp -f /src/libnvidia-ml.so.* /nvml/libnvidia-ml.so.1
+              ln -sf /nvml/libnvidia-ml.so.1 /nvml/libnvidia-ml.so
+          volumeMounts:
+            - name: nvml-src
+              mountPath: /src
+              readOnly: true
+            - name: nvml-dir
+              mountPath: /nvml
+
       containers:
-      - name: mig-manager
-        image: ghcr.io/moirai-internal/mig-manager:53fbc80-dirty
-        imagePullPolicy: IfNotPresent
-        command:
-        - /usr/local/bin/ome-mig-manager
-        args:
-        - --node-name=$(NODE_NAME)
-        - --config-file=$(CONFIG_FILE)
-        - --gpu-clients-file=$(GPU_CLIENTS_FILE)
-        - --host-root=$(HOST_ROOT_MOUNT)
-        - --nvidia-smi-path=/host/usr/bin/nvidia-smi
-        - --with-reboot=false
-        env:
-        - name: NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        - name: HOST_ROOT_MOUNT
-          value: /host
-        - name: CONFIG_FILE
-          value: /mig-parted-config/config.yaml
-        - name: GPU_CLIENTS_FILE
-          value: /gpu-clients/clients.yaml
-        - name: MIG_CONFIG_LABEL
-          value: nvidia.com/mig.config
-        - name: MIG_STRATEGY_LABEL
-          value: nvidia.com/mig.strategy
-        - name: MIG_STATE_LABEL
-          value: nvidia.com/mig.config.state
-        - name: MIG_FORCE_LABEL
-          value: your.domain/mig.force
-        - name: MIG_DRAIN_LABEL
-          value: your.domain/mig.drain
-        securityContext:
-          privileged: true
-        volumeMounts:
-        - name: host-root
-          mountPath: /host
-        - name: host-sys
-          mountPath: /sys
-        - name: nvidia-proc
-          mountPath: /proc/driver/nvidia
-        - name: mig-parted-config
-          mountPath: /mig-parted-config
-          readOnly: true
-        - name: gpu-clients
-          mountPath: /gpu-clients
-          readOnly: true
+        - name: mig-manager
+          image: ghcr.io/moirai-internal/mig-manager:53fbc80-dirty
+          imagePullPolicy: Always
+          command:
+            - /usr/local/bin/ome-mig-manager
+          args:
+            - --node-name=$(NODE_NAME)
+            - --config-file=$(CONFIG_FILE)
+            - --gpu-clients-file=$(GPU_CLIENTS_FILE)
+            - --host-root=$(HOST_ROOT_MOUNT)
+            - --nvidia-smi-path=/host/usr/bin/nvidia-smi
+            - --with-reboot=false
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: HOST_ROOT_MOUNT
+              value: /host
+            - name: CONFIG_FILE
+              value: /mig-parted-config/config.yaml
+            - name: GPU_CLIENTS_FILE
+              value: /gpu-clients/clients.yaml
+            - name: MIG_CONFIG_LABEL
+              value: nvidia.com/mig.config
+            - name: MIG_STRATEGY_LABEL
+              value: nvidia.com/mig.strategy
+            - name: MIG_STATE_LABEL
+              value: nvidia.com/mig.config.state
+            - name: MIG_FORCE_LABEL
+              value: your.domain/mig.force
+            - name: MIG_DRAIN_LABEL
+              value: your.domain/mig.drain
+
+            # Your code should use this to set LD_LIBRARY_PATH for the mig-parted exec
+            - name: NVML_LIB_DIR
+              value: /nvml
+
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+            - name: host-sys
+              mountPath: /sys
+
+            # REMOVE the /proc mount (containerd proc-safety blocks it)
+            # - name: nvidia-proc
+            #   mountPath: /proc/driver/nvidia
+
+            - name: mig-parted-config
+              mountPath: /mig-parted-config
+              readOnly: true
+            - name: gpu-clients
+              mountPath: /gpu-clients
+              readOnly: true
+
+            # Add isolated NVML dir
+            - name: nvml-dir
+              mountPath: /nvml
+              readOnly: true
+
       volumes:
-      - name: host-root
-        hostPath:
-          path: /
-      - name: host-sys
-        hostPath:
-          path: /sys
-      - name: nvidia-proc
-        hostPath:
-          path: /proc/driver/nvidia
-      - name: mig-parted-config
-        configMap:
-          name: mig-parted-config
-      - name: gpu-clients
-        configMap:
-          name: mig-manager-gpu-clients
+        - name: host-root
+          hostPath:
+            path: /
+        - name: host-sys
+          hostPath:
+            path: /sys
+
+        # REMOVE the /proc volume (containerd proc-safety blocks it)
+        # - name: nvidia-proc
+        #   hostPath:
+        #     path: /proc/driver/nvidia
+
+        - name: mig-parted-config
+          configMap:
+            name: mig-parted-config
+        - name: gpu-clients
+          configMap:
+            name: mig-manager-gpu-clients
+
+        # Host NVML file (adjust the filename to match your driver version)
+        # You can find it on the node with:
+        #   ls -l /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.*
+        - name: nvml-src
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.570.195.03
+            type: File
+
+        - name: nvml-dir
+          emptyDir: {}
